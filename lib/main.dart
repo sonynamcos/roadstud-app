@@ -10,6 +10,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:road_stud_app/ble_scan_debug_page.dart';
 import 'models/road_stud_node.dart';
 import 'models/road_stud_command.dart';
+import 'services/storage/storage_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,9 +19,6 @@ void main() {
 }
 
 /// -------------------- 모델 클래스들 --------------------
-
-
-
 
 /// -------------------- 앱 시작 --------------------
 
@@ -48,8 +46,7 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> {
-  static const _nodesKey = 'nodes';
-  static const _commandsKey = 'commands';
+  final StorageService _storage = StorageService();
 
   // 🔹 BLE 관련 필드 (향후 실제 컨트롤러용)
   BluetoothDevice? _bleDevice;
@@ -99,44 +96,48 @@ class _MainPageState extends State<MainPage> {
   }
 
   Future<void> _loadStoredData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final nodeStrings = prefs.getStringList(_nodesKey) ?? [];
-    final cmdStrings = prefs.getStringList(_commandsKey) ?? [];
+    try {
+      final loadedNodes = await _storage.loadNodes();
+      final loadedCommands = await _storage.loadCommands();
 
-    final loadedNodes = nodeStrings
-        .map((s) => RoadStudNode.fromJson(jsonDecode(s)))
-        .toList();
+      setState(() {
+        _nodes
+          ..clear()
+          ..addAll(loadedNodes);
+        _commands
+          ..clear()
+          ..addAll(loadedCommands);
 
-    final loadedCommands = cmdStrings
-        .map((s) => RoadStudCommand.fromJson(jsonDecode(s)))
-        .toList();
-
-    setState(() {
-      _nodes.addAll(loadedNodes);
-      _commands.addAll(loadedCommands);
-
-      if (_nodes.isNotEmpty) {
-        _currentNode = _nodes.first;
-        _lastUid = _currentNode!.uid;
-        _statusMessage = "저장된 데이터 로드 완료";
-      }
-    });
+        if (_nodes.isNotEmpty) {
+          _currentNode = _nodes.first;
+          _lastUid = _currentNode!.uid;
+          _statusMessage = "저장된 데이터 로드 완료";
+        }
+      });
+    } catch (e) {
+      _log("저장된 데이터 로드 실패: $e");
+    }
   }
 
   Future<void> _saveNodes() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _nodesKey,
-      _nodes.map((n) => jsonEncode(n.toJson())).toList(),
-    );
+    try {
+      // _nodes 타입이 List면, 안전하게 캐스팅
+      await _storage.saveNodes(
+        List<RoadStudNode>.from(_nodes as List<dynamic>),
+      );
+    } catch (e) {
+      _log("노드 저장 실패: $e");
+    }
   }
 
   Future<void> _saveCommands() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _commandsKey,
-      _commands.map((c) => jsonEncode(c.toJson())).toList(),
-    );
+    try {
+      await _storage.saveCommands(
+        List<RoadStudCommand>.from(_commands as List<dynamic>),
+      );
+    } catch (e) {
+      _log("명령 기록 저장 실패: $e");
+    }
   }
 
   /// -------------------- NFC 태그 읽기 --------------------

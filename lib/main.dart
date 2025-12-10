@@ -8,6 +8,8 @@ import 'package:nfc_manager/nfc_manager_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:road_stud_app/ble_scan_debug_page.dart';
+import 'models/road_stud_node.dart';
+import 'models/road_stud_command.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,60 +19,8 @@ void main() {
 
 /// -------------------- 모델 클래스들 --------------------
 
-class RoadStudNode {
-  final String uid;
-  final String nodeId;
-  final String intersection;
-  final String direction;
-  final String laneType;
-  final String studNumber;
 
-  RoadStudNode({
-    required this.uid,
-    required this.nodeId,
-    required this.intersection,
-    required this.direction,
-    required this.laneType,
-    required this.studNumber,
-  });
 
-  Map<String, dynamic> toJson() => {
-    'uid': uid,
-    'nodeId': nodeId,
-    'intersection': intersection,
-    'direction': direction,
-    'laneType': laneType,
-    'studNumber': studNumber,
-  };
-
-  factory RoadStudNode.fromJson(Map<String, dynamic> json) => RoadStudNode(
-    uid: json['uid'],
-    nodeId: json['nodeId'],
-    intersection: json['intersection'],
-    direction: json['direction'],
-    laneType: json['laneType'],
-    studNumber: json['studNumber'],
-  );
-}
-
-class RoadStudCommand {
-  final String event;
-  final DateTime timestamp;
-
-  /// ★ 전체 브로드캐스트용: 노드 정보는 더 이상 사용 안 함
-  RoadStudCommand({required this.event, required this.timestamp});
-
-  Map<String, dynamic> toJson() => {
-    'event': event,
-    'timestamp': timestamp.toIso8601String(),
-  };
-
-  factory RoadStudCommand.fromJson(Map<String, dynamic> json) =>
-      RoadStudCommand(
-        event: json['event'],
-        timestamp: DateTime.parse(json['timestamp']),
-      );
-}
 
 /// -------------------- 앱 시작 --------------------
 

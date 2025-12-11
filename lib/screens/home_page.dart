@@ -1,10 +1,4 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:nfc_manager/nfc_manager.dart';
-import 'package:nfc_manager/nfc_manager_android.dart';
-
 import 'package:road_stud_app/ble_scan_debug_page.dart';
 import '../models/road_stud_node.dart';
 import '../models/road_stud_command.dart';
@@ -13,6 +7,7 @@ import '../services/ble/ble_manager.dart';
 import 'new_node_page.dart';
 import 'verify_and_edit_page.dart';
 import 'node_list_page.dart';
+import '../services/nfc/nfc_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -24,6 +19,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final StorageService _storage = StorageService();
   late BleManager _bleManager;
+
+  final NfcService _nfcService = NfcService();
 
   String? _lastUid;
 
@@ -107,50 +104,20 @@ class _HomePageState extends State<HomePage> {
   /// -------------------- NFC 태그 읽기 --------------------
   Future<void> _readNfc() async {
     try {
-      final availability = await NfcManager.instance.checkAvailability();
-      if (availability != NfcAvailability.enabled) {
-        setState(() => _statusMessage = "NFC 사용 불가: $availability");
-        return;
-      }
+      setState(() {
+        _statusMessage = "NFC 태그를 표지병에 가까이 대주세요...";
+      });
 
-      await NfcManager.instance.startSession(
-        pollingOptions: {
-          NfcPollingOption.iso14443,
-          NfcPollingOption.iso15693,
-          NfcPollingOption.iso18092,
-        },
-        onDiscovered: (NfcTag tag) async {
-          Uint8List? idBytes;
+      final uid = await _nfcService.readUidOnce();
 
-          try {
-            if (Platform.isAndroid) {
-              final androidTag = NfcTagAndroid.from(tag);
-              idBytes = androidTag?.id;
-            }
-          } catch (e) {
-            setState(() => _statusMessage = "NFC 에러: $e");
-            await NfcManager.instance.stopSession();
-            return;
-          }
-
-          final readUid = (idBytes == null)
-              ? "UID 읽기 실패"
-              : idBytes
-                    .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                    .join(':')
-                    .toUpperCase();
-
-          setState(() {
-            _lastUid = readUid;
-            _statusMessage = "NFC 태그 읽기 완료";
-          });
-
-          await NfcManager.instance.stopSession();
-        },
-      );
+      setState(() {
+        _lastUid = uid;
+        _statusMessage = "NFC 태그 읽기 완료 (UID: $uid)";
+      });
     } catch (e) {
-      await NfcManager.instance.stopSession();
-      setState(() => _statusMessage = "NFC 에러: $e");
+      setState(() {
+        _statusMessage = "NFC 에러: $e";
+      });
     }
   }
 

@@ -4,15 +4,12 @@ class RoadStudCommand {
   final String event;
   final DateTime timestamp;
 
-  RoadStudCommand({
-    required this.event,
-    required this.timestamp,
-  });
+  RoadStudCommand({required this.event, required this.timestamp});
 
   Map<String, dynamic> toJson() => {
-        'event': event,
-        'timestamp': timestamp.toIso8601String(),
-      };
+    'event': event,
+    'timestamp': timestamp.toIso8601String(),
+  };
 
   factory RoadStudCommand.fromJson(Map<String, dynamic> json) =>
       RoadStudCommand(

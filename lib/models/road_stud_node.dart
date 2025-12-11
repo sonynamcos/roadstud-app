@@ -18,20 +18,20 @@ class RoadStudNode {
   });
 
   Map<String, dynamic> toJson() => {
-        'uid': uid,
-        'nodeId': nodeId,
-        'intersection': intersection,
-        'direction': direction,
-        'laneType': laneType,
-        'studNumber': studNumber,
-      };
+    'uid': uid,
+    'nodeId': nodeId,
+    'intersection': intersection,
+    'direction': direction,
+    'laneType': laneType,
+    'studNumber': studNumber,
+  };
 
   factory RoadStudNode.fromJson(Map<String, dynamic> json) => RoadStudNode(
-        uid: json['uid'] as String,
-        nodeId: json['nodeId'] as String,
-        intersection: json['intersection'] as String,
-        direction: json['direction'] as String,
-        laneType: json['laneType'] as String,
-        studNumber: json['studNumber'] as String,
-      );
+    uid: json['uid'] as String,
+    nodeId: json['nodeId'] as String,
+    intersection: json['intersection'] as String,
+    direction: json['direction'] as String,
+    laneType: json['laneType'] as String,
+    studNumber: json['studNumber'] as String,
+  );
 }

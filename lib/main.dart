@@ -11,6 +11,7 @@ import 'package:road_stud_app/ble_scan_debug_page.dart';
 import 'models/road_stud_node.dart';
 import 'models/road_stud_command.dart';
 import 'services/storage/storage_service.dart';
+import 'services/ble/ble_manager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,16 +49,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final StorageService _storage = StorageService();
 
-  // 🔹 BLE 관련 필드 (향후 실제 컨트롤러용)
-  BluetoothDevice? _bleDevice;
-  BluetoothCharacteristic? _bleCommandChar;
-
-  // 우리가 약속한 서비스 / 캐릭터리스틱 UUID
-  static final Guid _serviceUuid = Guid('12345678-1234-5678-1234-56789abcdef0');
-  static final Guid _charUuid = Guid('12345678-1234-5678-1234-56789abcdef1');
-
-  // 🔹 Windows 에뮬에서 광고 이름 (KIM-TOPIT)
-  static const String _targetDeviceName = 'KIM-TOPIT';
+  late BleManager _bleManager;
 
   String? _lastUid;
 
@@ -74,6 +66,7 @@ class _MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
+    _bleManager = BleManager(log: _log);
     _loadStoredData();
   }
 
@@ -327,6 +320,20 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
+  int _eventToModeByte(String event) {
+    switch (event) {
+      case 'NIGHT':
+        return 0x10;
+      case 'RAIN':
+        return 0x11;
+      case 'FOG':
+        return 0x12;
+      case 'ACCIDENT':
+        return 0x13;
+    }
+    return 0x00;
+  }
+
   /// -------------------- ★ 전체 노드 브로드캐스트 이벤트 --------------------
   Future<void> _sendEvent(String event) async {
     final now = DateTime.now();
@@ -343,23 +350,16 @@ class _MainPageState extends State<MainPage> {
     };
     debugPrint("GROUP COMMAND: $payload");
 
-    // 명령 → 코드 테이블
-    List<int> _encodeCommand(String event) {
-      switch (event) {
-        case 'NIGHT':
-          return [0x10];
-        case 'RAIN':
-          return [0x11];
-        case 'FOG':
-          return [0x12];
-        case 'ACCIDENT':
-          return [0x13];
-      }
-      return [0x00];
-    }
+    final modeByte = _eventToModeByte(event);
 
-    // 🔹 1) PC 에뮬로 BLE 명령 전송 (데모용)
-    await _sendBleCommandToEmulator(_encodeCommand(event));
+    // 🔹 1) BleManager를 통해 BLE 명령 전송
+    try {
+      await _bleManager.scanAndConnect();
+      await _bleManager.sendMode(modeByte);
+      _log("BLE 모드 전송 완료 (event=$event, byte=0x${modeByte.toRadixString(16)})");
+    } catch (e) {
+      _log("BLE 모드 전송 실패: $e");
+    }
 
     // 🔹 2) 내부 로그/카드 처리
     setState(() {
@@ -393,109 +393,18 @@ class _MainPageState extends State<MainPage> {
   Future<void> _connectToBleDevice() async {
     try {
       setState(() {
-        _statusMessage = "BLE 디바이스 스캔 중...";
+        _statusMessage = "BLE 스캔 및 연결 시도 중...";
       });
 
-      // 혹시 이전 스캔이 돌고 있으면 정지
-      try {
-        await FlutterBluePlus.stopScan();
-      } catch (_) {}
-
-      BluetoothDevice? foundDevice;
-
-      // 🔥 스캔 결과 listen (stopScan() 할 때까지 계속 들어옴)
-      final sub = FlutterBluePlus.scanResults.listen((results) {
-        for (final r in results) {
-          final name = r.device.platformName;
-          final adv = r.advertisementData;
-
-          debugPrint("[SCAN] name='${name}', local='${adv.localName}'");
-
-          final isMatch =
-              name.contains(_targetDeviceName) ||
-              adv.localName.contains(_targetDeviceName);
-
-          if (isMatch && foundDevice == null) {
-            debugPrint("[SCAN] >>> TARGET FOUND!");
-            foundDevice = r.device;
-          }
-        }
-      });
-
-      // 🔥 timeout 없이 스캔 시작
-      await FlutterBluePlus.startScan(androidUsesFineLocation: true);
-
-      // 🔥 충분히 길게 기다리기 (5초)
-      await Future.delayed(const Duration(seconds: 5));
-
-      // 🔥 스캔 종료
-      await FlutterBluePlus.stopScan();
-      await sub.cancel();
-
-      // ---------------------------------------------------
-      // 스캔 결과 분석
-      // ---------------------------------------------------
-      final results = FlutterBluePlus.lastScanResults;
-
-      debugPrint("=== SCAN RESULT COUNT: ${results.length} ===");
-
-      if (results.isEmpty) {
-        setState(() {
-          _statusMessage = "스캔된 장치가 없습니다. (BLE 광고를 확인하세요)";
-        });
-        return;
-      }
-
-      // 로그: 전체 장치 출력
-      for (final r in results) {
-        final name = r.device.platformName;
-        final adv = r.advertisementData;
-        debugPrint("[SCAN LIST] name='$name', local='${adv.localName}'");
-      }
-
-      // 🔥 target 못 찾았으면, 첫 번째 장치라도 연결해보기
-      final target = foundDevice ?? results.first.device;
+      await _bleManager.scanAndConnect();
 
       setState(() {
-        _statusMessage = "디바이스 발견: ${target.platformName} (연결 시도 중...)";
-      });
-
-      // ---------------------------------------------------
-      // 연결
-      // ---------------------------------------------------
-      await target.connect(autoConnect: false);
-
-      final services = await target.discoverServices();
-      BluetoothCharacteristic? foundChar;
-
-      for (final s in services) {
-        if (s.serviceUuid == _serviceUuid) {
-          for (final c in s.characteristics) {
-            if (c.characteristicUuid == _charUuid) {
-              foundChar = c;
-              break;
-            }
-          }
-        }
-      }
-
-      if (foundChar == null) {
-        setState(() {
-          _statusMessage = "캐릭터리스틱을 찾지 못했습니다.";
-        });
-        return;
-      }
-
-      _bleDevice = target;
-      _bleCommandChar = foundChar;
-
-      setState(() {
-        _statusMessage = "BLE 연결 완료! (향후 실제 컨트롤러와 연동 시 사용 예정)";
+        _statusMessage = "BLE 연결 완료!";
       });
     } catch (e) {
-      debugPrint("[BLE ERROR] $e");
+      _log("BLE 연결 실패: $e");
       setState(() {
-        _statusMessage = "BLE 연결 에러: $e";
+        _statusMessage = "BLE 연결 실패: $e";
       });
     }
   }
@@ -503,61 +412,15 @@ class _MainPageState extends State<MainPage> {
   // 🔹 BLE 연결 해제
   Future<void> _disconnectBleDevice() async {
     try {
-      if (_bleDevice != null) {
-        await _bleDevice!.disconnect();
-      }
+      await _bleManager.disconnect();
     } catch (_) {}
 
     setState(() {
-      _bleDevice = null;
-      _bleCommandChar = null;
       _statusMessage = "BLE 연결 해제됨";
     });
   }
 
   // ★ 실제 BLE 전송 담당 (향후 실제 컨트롤러용)
-  Future<void> _sendBleCommand(String command) async {
-    if (_bleDevice == null || _bleCommandChar == null) {
-      debugPrint("[BLE] 아직 디바이스/캐릭터리스틱이 준비되지 않았습니다.");
-      setState(() {
-        _statusMessage = "먼저 BLE 연결 버튼을 눌러 디바이스를 연결하세요.";
-      });
-      return;
-    }
-
-    // 🔹 이벤트명 → 코드 매핑
-    List<int> _encodeEvent(String cmd) {
-      switch (cmd) {
-        case 'NIGHT':
-          return [0x10];
-        case 'RAIN':
-          return [0x11];
-        case 'FOG':
-          return [0x12];
-        case 'ACCIDENT':
-          return [0x13];
-        default:
-          // 혹시 모르는 경우, 그냥 문자열을 UTF-8로 보내기
-          return utf8.encode(cmd);
-      }
-    }
-
-    try {
-      final bytes = _encodeEvent(command);
-
-      await _bleCommandChar!.write(bytes, withoutResponse: true);
-
-      debugPrint("[BLE] send command: $command (bytes: $bytes)");
-      setState(() {
-        _statusMessage = "BLE 전송 완료: $command";
-      });
-    } catch (e) {
-      debugPrint("[BLE] 전송 실패: $e");
-      setState(() {
-        _statusMessage = "BLE 전송 실패: $e";
-      });
-    }
-  }
 
   /// -------------------- PC 에뮬용 BLE 전송 (데모용) --------------------
   Future<void> _sendBleCommandToEmulator(List<int> bytes) async {
@@ -769,15 +632,15 @@ class _MainPageState extends State<MainPage> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: _connectToBleDevice,
-                    child: Text(
-                      _bleDevice == null ? "BLE 연결 (향후용)" : "BLE 재연결",
-                    ),
+                    child: Text(_bleManager.isConnected ? "BLE 재연결" : "BLE 연결"),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _bleDevice == null ? null : _disconnectBleDevice,
+                    onPressed: _bleManager.isConnected
+                        ? _disconnectBleDevice
+                        : null,
                     child: const Text("BLE 연결 해제"),
                   ),
                 ),

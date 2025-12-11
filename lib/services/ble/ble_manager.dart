@@ -5,7 +5,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-/// 로그 출력용 콜백 타입
 typedef LogCallback = void Function(String);
 
 /// 스마트 도로표지병용 BLE 매니저
@@ -13,28 +12,22 @@ typedef LogCallback = void Function(String);
 /// - 스캔
 /// - 디바이스 연결
 /// - 캐릭터리스틱 찾기
-/// - 모드 전송(야간/비/안개/사고 등)
+/// - 단일 바이트 모드 전송 (0x10 ~ 0x13)
 class BleManager {
-  final FlutterBluePlus _ble = FlutterBluePlus.instance;
+  BleManager({required this.log});
+
   final LogCallback log;
 
-  /// 스캔 시 찾을 디바이스 이름 (PC 에뮬레이터 이름 등)
-  final String targetDeviceName;
+  // 🔹 Windows PC 에뮬에서 광고되는 이름
+  static const String _targetDeviceName = 'KIM_TOPIT';
 
-  /// 서비스 / 캐릭터리스틱 UUID
-  final Guid serviceUuid;
-  final Guid txCharacteristicUuid;
+  // 🔹 우리가 약속한 서비스 / 캐릭터리스틱 UUID
+  static final Guid _serviceUuid = Guid('12345678-1234-5678-1234-56789abcdef0');
+  static final Guid _charUuid = Guid('12345678-1234-5678-1234-56789abcdef1');
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _txChar;
-  StreamSubscription<ScanResult>? _scanSub;
-
-  BleManager({
-    required this.log,
-    required this.targetDeviceName,
-    required this.serviceUuid,
-    required this.txCharacteristicUuid,
-  });
+  StreamSubscription? _scanSub;
 
   BluetoothDevice? get device => _device;
   bool get isConnected => _device != null && _txChar != null;
@@ -45,7 +38,7 @@ class BleManager {
   Future<void> scanAndConnect({
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    log("BLE: 스캔 시작 (target: $targetDeviceName)");
+    log("BLE: 스캔 시작 (target: $_targetDeviceName)");
 
     // 이미 연결되어 있으면 재시도 안 함
     if (isConnected) {
@@ -55,24 +48,25 @@ class BleManager {
 
     // 이전 스캔 정리
     await _scanSub?.cancel();
+    _scanSub = null;
 
     final completer = Completer<void>();
 
-    _scanSub = _ble.scanResults.listen((results) async {
+    _scanSub = FlutterBluePlus.scanResults.listen((results) async {
       for (final r in results) {
-        final name = r
-            .device
-            .platformName; // flutter_blue_plus v1.x (이전 이름: r.device.name)
-        if (name == targetDeviceName) {
+        final name = r.device.platformName;
+        if (name == _targetDeviceName) {
           log("BLE: 타겟 디바이스 발견 → $name, RSSI=${r.rssi}");
 
-          await _ble.stopScan();
+          await FlutterBluePlus.stopScan();
           await _scanSub?.cancel();
           _scanSub = null;
 
           try {
             await _connectToDevice(r.device);
-            completer.complete();
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
           } catch (e) {
             log("BLE: 디바이스 연결 실패: $e");
             if (!completer.isCompleted) {
@@ -85,7 +79,10 @@ class BleManager {
       }
     });
 
-    await _ble.startScan(timeout: timeout);
+    await FlutterBluePlus.startScan(
+      timeout: timeout,
+      androidUsesFineLocation: true,
+    );
     log("BLE: 스캔 명령 전송됨");
 
     // 타임아웃 처리
@@ -93,7 +90,9 @@ class BleManager {
       timeout + const Duration(seconds: 1),
       onTimeout: () async {
         log("BLE: 타임아웃 – 디바이스를 찾지 못했습니다.");
-        await _ble.stopScan();
+        try {
+          await FlutterBluePlus.stopScan();
+        } catch (_) {}
         await _scanSub?.cancel();
         _scanSub = null;
       },
@@ -115,9 +114,9 @@ class BleManager {
     BluetoothCharacteristic? foundChar;
 
     for (final s in services) {
-      if (s.serviceUuid == serviceUuid) {
+      if (s.serviceUuid == _serviceUuid) {
         for (final c in s.characteristics) {
-          if (c.characteristicUuid == txCharacteristicUuid) {
+          if (c.characteristicUuid == _charUuid) {
             foundChar = c;
             break;
           }
@@ -158,7 +157,7 @@ class BleManager {
       throw Exception("Device not connected");
     }
 
-    final data = Uint8List.fromList([modeByte & 0xFF]);
+    final data = Uint8List.fromList(<int>[modeByte & 0xFF]);
 
     try {
       await _txChar!.write(data, withoutResponse: true);

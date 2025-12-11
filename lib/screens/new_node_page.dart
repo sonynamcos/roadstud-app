@@ -79,9 +79,7 @@ class _NewNodePageState extends State<NewNodePage> {
     final stud = _studNumberController.text.trim();
 
     if (nm.isEmpty || stud.isEmpty || _generatedId == null) {
-      setState(() {
-        _errorMessage = "입력값이 부족합니다.";
-      });
+      setState(() => _errorMessage = "입력값이 부족합니다.");
       return;
     }
 

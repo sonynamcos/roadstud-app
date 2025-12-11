@@ -103,21 +103,15 @@ class _HomePageState extends State<HomePage> {
 
   /// -------------------- NFC 태그 읽기 --------------------
   Future<void> _readNfc() async {
-    try {
-      setState(() {
-        _statusMessage = "NFC 태그를 표지병에 가까이 대주세요...";
-      });
+    final uid = await _nfcService.readUid(
+      onStatus: _log, // 상태 메시지는 기존 로그 시스템에 태움
+    );
 
-      final uid = await _nfcService.readUidOnce();
-
+    if (uid != null) {
       setState(() {
         _lastUid = uid;
-        _statusMessage = "NFC 태그 읽기 완료 (UID: $uid)";
       });
-    } catch (e) {
-      setState(() {
-        _statusMessage = "NFC 에러: $e";
-      });
+      _log("NFC UID: $uid");
     }
   }
 
@@ -160,9 +154,7 @@ class _HomePageState extends State<HomePage> {
   /// -------------------- 저장된 노드 리스트에서 선택 --------------------
   Future<void> _openNodeListPage() async {
     if (_nodes.isEmpty) {
-      setState(() {
-        _statusMessage = "저장된 노드가 없습니다.";
-      });
+      setState(() => _statusMessage = "저장된 노드가 없습니다.");
       return;
     }
 
